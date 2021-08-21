@@ -1,0 +1,236 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Sat Aug 21 13:41:50 2021
+
+@author: a123
+"""
+# =============================================================================
+# the line chart using SEIR model
+# =============================================================================
+# SEIR Model of the spreading 
+import scipy.integrate as spi
+import numpy as np
+import matplotlib.pyplot as plt
+
+# N is the total number in the city
+N = 1000000
+# β is the infected proportion
+beta = 0.7
+# gamma is the recoverd proportion
+gamma = 0.5
+# Te is the virus incubation period
+Te = 14
+# I_0 is the initial number of the infection
+I_0 = 30
+# E_0 is the initial number of the exposed
+E_0 = 0
+# R_0 is the initial number of the recovery
+R_0 = 0
+# S_0 is the initial number of the susceptible
+S_0 = N - I_0 - E_0 - R_0
+# T is the spreading time
+T = 100
+
+# INI is the original array
+INI = (S_0,E_0,I_0,R_0)
+
+#use SEIR model to simulate the Covid-19 spreading in the city
+def funcSEIR(inivalue,_):
+ Y = np.zeros(4)
+ X = inivalue
+ # the changed number of susceptible 
+ Y[0] = - (beta * X[0] *( X[2]+X[1])) / N
+ # the changed number of exposed 
+ Y[1] = (beta * X[0] *( X[2]+X[1])) / N - X[1] / Te
+ # the changed number of infection 
+ Y[2] = X[1] / Te - gamma * X[2]
+ # the changed number of recovery
+ Y[3] = gamma * X[2]
+ return Y
+
+T_range = np.arange(0,T + 1)
+
+RES = spi.odeint(funcSEIR,INI,T_range)
+
+plt.plot(RES[:,0],color = 'darkblue',label = 'Susceptible',marker = '.')
+plt.plot(RES[:,1],color = 'orange',label = 'Exposed',marker = '.')
+plt.plot(RES[:,2],color = 'red',label = 'Infection',marker = '.')
+plt.plot(RES[:,3],color = 'green',label = 'Recovery',marker = '.')
+
+plt.title('Line Chart of Covid-19 spreading in the city ')
+plt.legend()
+plt.xlabel('Day')
+plt.ylabel('Number')
+plt.show()
+
+# =============================================================================
+# scatter diagram
+# =============================================================================
+
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+# create a class called people inclues total number and the first infected number
+class People(object):
+    def __init__(self, count=1000000, first_infected_count=30):
+        self.count = count
+        self.first_infected_count = first_infected_count
+        self.init()
+        
+    # using array to present the location of everyone
+    def init(self):
+        self._people = np.random.normal(0, 1000, (self.count, 2))
+        self.reset()
+
+    def reset(self):
+        self._round = 0
+        self._status = np.array([0] * self.count)
+        self._timer = np.array([0] * self.count)
+        self.random_people_state(self.first_infected_count, 1)
+
+    def random_people_state(self, num, state=1):
+        """pick the people randomly
+        """
+        assert self.count > num
+        # TODO：极端情况下会出现无限循环??
+        n = 0
+        while n < num:
+            i = np.random.randint(0, self.count)
+            if self._status[i] == state:
+                continue
+            else:
+                self.set_state(i, state)
+                n += 1
+
+    def set_state(self, i, state):
+        self._status[i] = state
+        # record the time of changing
+        self._timer[i] = self._round
+
+    def random_movement(self, width=1):
+        """pick a movement ramdomly 
+        :param width: control the witdth of movement
+        :return:
+        """
+        return np.random.normal(0, width, (self.count, 2))
+
+    def random_switch(self, x=0.):
+        """create a switch ramdoml with 0 - close，1 - open
+        x is in (-1.99, 1.99)；
+        when x is 0, the proportion would be 50%
+        :param x: control the proportion
+        :return:
+        """
+        normal = np.random.normal(0, 1, self.count)
+        switch = np.where(normal < x, 1, 0)
+        return switch
+
+    @property
+    def healthy(self):
+        return self._people[self._status == 0]
+
+    @property
+    def infected(self):
+        return self._people[self._status == 1]
+
+    @property
+    def confirmed(self):
+        return self._people[self._status == 2]
+
+    def move(self, width=1, x=.0):
+        movement = self.random_movement(width=width)
+        # 
+        switch = self.random_switch(x=x)
+        # movement[(self._status == 0) | switch == 0] = 0
+        movement[switch == 0] = 0
+        self._people = self._people + movement
+
+    def change_state(self):
+        dt = self._round - self._timer
+        # do the timer firstly!
+        d = np.random.randint(3, 7)
+        self._timer[(self._status == 1) & ((dt == d) | (dt > 14))] = self._round
+        self._status[(self._status == 1) & ((dt == d) | (dt > 14))] += 1
+
+    def affect(self):
+        # self.infect_nearest()
+        self.infect_possible(x=0.)
+
+    def infect_nearest(self, safe_distance=1.0):
+        """infect the closest healthy"""
+        for inf in self.infected:
+            dm = (self._people - inf) ** 2
+            d = dm.sum(axis=1) ** 0.5
+            sorted_index = d.argsort()
+            for i in sorted_index:
+                if d[i] >= safe_distance:
+                    break  
+                if self._status[i] > 0:
+                    continue
+                self._status[i] = 1
+                # record the time when movement change
+                self._timer[i] = self._round
+                break  # 只传 1 个
+
+    def infect_possible(self, x=0., safe_distance=2.0):
+        """infect the closest healthy with still proportion
+        proportion is 50% when x is 0
+        """
+        for inf in self.infected:
+            dm = (self._people - inf) ** 2
+            # d = dm.sum(axis=1) ** 0.5
+            d = dm.sum(axis=1) ** 0.5
+            sorted_index = d.argsort()
+            for i in sorted_index:
+                if d[i] >= safe_distance:
+                    break  #
+                if self._status[i] > 0:
+                    continue
+                if np.random.normal() > x:
+                    continue
+                self._status[i] = 1
+                # record the time when movement change
+                self._timer[i] = self._round
+
+    def over(self):
+        return len(self.healthy) == 0
+
+    def report(self):
+        plt.cla()
+        # plt.grid(False)
+        p1 = plt.scatter(self.healthy[:, 0], self.healthy[:, 1], s=1)
+        p2 = plt.scatter(self.infected[:, 0], self.infected[:, 1], s=1, c='pink')
+        p3 = plt.scatter(self.confirmed[:, 0], self.confirmed[:, 1], s=1, c='red')
+
+        plt.legend([p1, p2, p3], ['healthy', 'infected', 'confirmed'], loc='upper right', scatterpoints=1)
+        t = "Round: %s, Healthy: %s, Infected: %s, Confirmed: %s" % \
+            (self._round, len(self.healthy), len(self.infected), len(self.confirmed))
+        plt.text(-200, 400, t, ha='left', wrap=True)
+
+    def update(self):
+        """update every iteration"""
+        self.change_state()
+        self.affect()
+        self.move(3, 1.99)
+        self._round += 1
+        self.report()
+
+
+
+if __name__ == '__main__':
+    np.random.seed(0)
+    plt.figure(figsize=(15, 15), dpi=100)
+    plt.ion()
+    p = People(1000000, 30)
+    for i in range(100):
+        p.update()
+        p.report()
+        plt.pause(.1)
+    plt.pause(30)
+
+    
+
+
+
